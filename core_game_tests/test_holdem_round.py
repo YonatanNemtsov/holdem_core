@@ -3,15 +3,12 @@ import sys
 import os
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
-from holdem_round import (
+from core_game.holdem_round import (
     HoldemRoundPlayer,
     HoldemRound,
     HoldemRoundConfig,
     HoldemRoundStage,
 )
-
-
-    
 
 class TestValidateSetup(unittest.TestCase):
     def test2(self):

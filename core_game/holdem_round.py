@@ -97,10 +97,10 @@ class HoldemRound:
     stage: HoldemRoundStage = HoldemRoundStage.NOT_STARTED
     log: list = field(default_factory=list) 
     bets: dict = field(default_factory=lambda: { # each bet is represented as (sit, bet_type, call_amount, raise_amount)
-        HoldemRoundStage.PREFLOP:[],
-        HoldemRoundStage.FLOP:[],
-        HoldemRoundStage.TURN:[],
-        HoldemRoundStage.RIVER:[]
+        HoldemRoundStage.PREFLOP.value:[],
+        HoldemRoundStage.FLOP.value:[],
+        HoldemRoundStage.TURN.value:[],
+        HoldemRoundStage.RIVER.value:[]
     }, repr=False)
 
     winners: dict[HoldemRoundPlayer:int] = field(default_factory=dict, repr=False) # of the form {winner: amount}
@@ -145,6 +145,9 @@ class HoldemRound:
         if player.chips == 0:
             return allowed_moves
         
+        if player.folded:
+            return allowed_moves
+        
         allowed_moves['moves'].append('fold')
         
         call_amount = self.get_call_amount(player)
@@ -169,12 +172,13 @@ class HoldemRound:
         return  sum([0]+[bet[2]+bet[3] for bet in self.bets[stage] if bet[0]==player.sit])
     
     def get_player_total_bet(self,player: HoldemRoundPlayer) -> int:
+        print(self.bets)
         return sum([self.get_player_total_bet_in_stage(player,stage) for stage in self.bets.keys()])
     
     def get_call_amount(self, player: HoldemRoundPlayer) -> int:
         """ returns the amount a player has to call to continue hand. """
-        biggest_total_bet_in_stage = max([self.get_player_total_bet_in_stage(p,self.stage) for p in self.players])
-        player_total_bet_in_stage = self.get_player_total_bet_in_stage(player, self.stage)
+        biggest_total_bet_in_stage = max([self.get_player_total_bet_in_stage(p,self.stage.value) for p in self.players])
+        player_total_bet_in_stage = self.get_player_total_bet_in_stage(player, self.stage.value)
         return min(player.chips, biggest_total_bet_in_stage - player_total_bet_in_stage)
     
     def get_largest_raise_in_stage(self, stage: HoldemRoundStage):
@@ -183,7 +187,7 @@ class HoldemRound:
     def is_betting_open(self):
         raised_amount = 0
         betting_open = True
-        for bet in self.bets[self.stage]:
+        for bet in self.bets[self.stage.value]:
             if bet[0] == 'raise':
                 if bet[3] >= raised_amount:
                     raised_amount = bet[3]
@@ -202,7 +206,7 @@ class HoldemRound:
     def get_min_raise_amount(self, player: HoldemRoundPlayer) -> int:
         """ returns minimal amount of chips a player is allowed to raise. returns 0 if raise is not allowed. """
         max_raise_amount = self.get_max_raise_amount(player)
-        return min(max_raise_amount, max(2*self.config.small_blind, self.get_largest_raise_in_stage(self.stage)))
+        return min(max_raise_amount, max(2*self.config.small_blind, self.get_largest_raise_in_stage(self.stage.value)))
     
     def get_min_total_bet(self, player: HoldemRoundPlayer) -> int:
         return self.get_call_amount(player) + self.get_min_raise_amount()
@@ -233,16 +237,22 @@ class HoldemRound:
             for bet_rank in pots:
                 pots[bet_rank]['players'].append(player)
         self.pots = pots
+        print(self.pots)
     
-    def determine_pots_winners(self) -> list[HoldemRoundPlayer]:
+    def determine_pots_winners(self) -> None:
         assert self.stage in (HoldemRoundStage.NO_SHOWDOWN,HoldemRoundStage.SHOWDOWN)
         not_folded_players = [p for p in self.players if not p.folded]
+        print(not_folded_players)
+
         if len(not_folded_players) == 1:
-            return [not_folded_players[0]]
-        
+            assert self.stage == HoldemRoundStage.NO_SHOWDOWN
+            for bet_rank in self.pots:
+                self.winners[bet_rank] = [not_folded_players[0].sit]
+            return
         evaluator = hand_ranker.Evaluator()
         for bet_rank in self.pots:
             hand_ranks = dict()
+            
             for p in self.pots[bet_rank]['players']:
                 if p.folded:
                     continue
@@ -251,15 +261,16 @@ class HoldemRound:
                 community_cards = [hand_ranker.Card.new(c) for c in self.community_cards]
                 
                 hand_ranks[p.sit] = evaluator.evaluate(player_cards, community_cards)
-        
+
             self.winners[bet_rank] = [sit for sit in  hand_ranks if sit == min(hand_ranks, key=hand_ranks.get)] # todo: use filter instead
-    
+            print(self.winners)
+
     def distribute_pot_of_rank(self,rank: int):
         pass
 
     def distribute_pots(self):
-        assert self.stage in (HoldemRoundStage.NO_SHOWDOWN,HoldemRoundStage.SHOWDOWN)
-        assert len(self.winners)>0
+        assert self.stage in (HoldemRoundStage.NO_SHOWDOWN, HoldemRoundStage.SHOWDOWN)
+        assert len(self.winners) > 0
         
         for player in self.players:
             for bet_rank in self.winners:
@@ -285,14 +296,17 @@ class HoldemRound:
         self.deal_cards()
         self.stage = HoldemRoundStage.PREFLOP
         self.to_move = self.move_queue.get()
+
         print(self.to_move)
     
-    # todo: refactor: start_showdown(), start_flop(), etc...
+    # TODO: refactor: start_showdown(), start_flop(), etc...
     def start_next_stage(self):
         print('next stage starting...')
-        if 1 == len([p for p in self.players if not p.folded]):
+        if len([p for p in self.players if not p.folded]) == 1:
                 if self.stage in [HoldemRoundStage.PREFLOP, HoldemRoundStage.FLOP, HoldemRoundStage.TURN, HoldemRoundStage.RIVER]:
                     self.stage = HoldemRoundStage.NO_SHOWDOWN
+                elif self.stage == HoldemRoundStage.NO_SHOWDOWN:
+                    self.stage = HoldemRoundStage.ENDED
         
         elif self.stage == HoldemRoundStage.PREFLOP:
             self.move_queue.remake_due_to_new_betting_round()
@@ -324,10 +338,31 @@ class HoldemRound:
             self.start_next_stage()
         else:
             self.to_move = self.move_queue.get()
-    
-    def print_round_state(self):
-        print(f' stage: {self.stage},\n to move: {self.to_move},\n queue: {self.move_queue},\n bets: {self.bets}')
 
+    def get_last_move(self, player: HoldemRoundPlayer):
+        last_move = {}
+        for event in self.log:
+            if event['sit'] == player.sit and event['stage'] == self.stage.value:
+                last_move = event.copy()
+                
+        return last_move
+
+    #TODO: make this better. Currently not in use.
+    def get_round_view(self, player: HoldemRoundPlayer = None):
+        view = {
+            'personal_info': {
+                'sit':player.sit if player else -1,
+                'player_cards': player.cards if player else -1,
+            },
+
+            'shared_info': {
+                'players': [p.sit for p in  self.players],
+            }
+            
+        }
+        
+        return view
+    
     def get_hand_rank_name(self, player: HoldemRoundPlayer):
         evaluator = hand_ranker.Evaluator()
 
@@ -377,28 +412,27 @@ class HoldemRound:
     }
     
     def validate_game_request(self, player: HoldemRoundPlayer, request: dict):
-        assert player.folded == False
         allowed_moves = self.get_allowed_moves(player)
         
-        if not request['move'] in allowed_moves['moves']:
+        if not request['action'] in allowed_moves['moves']:
             return False
         
         if not self.stage in (HoldemRoundStage.FLOP,HoldemRoundStage.PREFLOP,HoldemRoundStage.RIVER,HoldemRoundStage.TURN):
             print('Move not allowed - game ended.')
             return False
 
-        return self.VALIDATE[request['move']](allowed_moves, request)
+        return self.VALIDATE[request['action']](allowed_moves, request)
     
 
     def apply_check(self, player: HoldemRoundPlayer, request: dict):
         return
     
     def apply_call(self, player: HoldemRoundPlayer, request: dict):
-        self.bets[self.stage].append((player.sit, request['move'], request['call_amount'], request['raise_amount']))
+        self.bets[self.stage.value].append((player.sit, request['action'], request['call_amount'], request['raise_amount']))
         player.chips -= (request['call_amount']+request['raise_amount'])
 
     def apply_raise(self, player: HoldemRoundPlayer, request: dict):
-        self.bets[self.stage].append((player.sit, request['move'], request['call_amount'], request['raise_amount']))
+        self.bets[self.stage.value].append((player.sit, request['action'], request['call_amount'], request['raise_amount']))
         player.chips -= (request['call_amount']+request['raise_amount'])
 
     def apply_fold(self, player: HoldemRoundPlayer, request: dict):
@@ -414,13 +448,14 @@ class HoldemRound:
     # TODO: should probably be in abstract class
 
     def apply_game_request(self, player: HoldemRoundPlayer , request: dict):
-        
-        self.log.append({player.sit: request})
-        self.APPLY[request['move']](self, player, request)
+        log_record = request.copy()
+        log_record.update({'stage': self.stage.value})
+        self.log.append(log_record)
+        self.APPLY[request['action']](self, player, request)
 
-        if request['move'] == 'raise':
+        if request['action'] == 'raise':
             self.move_queue.extend_due_to_raise(player)
-    
+
     # TODO: should probably be in abstract class
 
     def process_game_request(self, request: dict) -> None:
@@ -439,11 +474,11 @@ class HoldemRound:
 
         player = self.get_player_by_sit(request['sit'])
         if not self.validate_game_request(player, request):
-            print(request['move'] + ' not allowed.')
-            return {'type':'move_response', 'accepted':False}
+            print(request['action'] + ' not allowed.')
+            return {'type':'move_response', 'success':False}
         
         self.apply_game_request(player, request)
-        return {'type':'move_response', 'accepted':True}
+        return {'type':'move_response', 'success':True}
 
 def main():
     player1 = HoldemRoundPlayer(sit=1, chips=1000)

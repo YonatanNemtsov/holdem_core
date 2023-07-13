@@ -70,6 +70,7 @@ class HoldemTable:
         self.players.append(player)
     
     def remove_player(self, player: HoldemTablePlayer):
+        self.players.remove(player)
         del player
 
     async def _validate_start_new_round(self):
@@ -106,32 +107,35 @@ class HoldemTable:
                 
     
     def _process_join_request(self, join_request):
-        response = {'type':'sit_response', 'accepted':True}
+        response = {'type':'sit_response', 'success':True}
         if self.get_player_by_sit(join_request['sit']) != None:
-            response['accepted'] = False
+            response['success'] = False
             return response
         
         if self.get_player_by_id(join_request['user_id']) != None:
-            response['accepted'] = False
+            response['success'] = False
             return response
         
         self.add_player(join_request['user_id'], join_request['sit'], join_request['chips'])
 
         return response
     
+
+    #TODO: needs to be written with full functionality.
     def _process_leave_request(self, leave_request):
-        response = {'type':'sit_response', 'accepted':True}
+        
+        response = {'type':'sit_response', 'success':True}
         if self.get_player_by_sit(leave_request['sit']) == None:
-            response['accepted'] = False
+            response['success'] = False
             return response
         
         if self.get_player_by_id(leave_request['user_id']) == None:
-            response['accepted'] = False
+            response['success'] = False
             return response
         
         self.remove_player(self.get_player_by_id(leave_request['user_id']))
         
-        return response 
+        return response
 
     def process_sit_request(self, sit_request: dict):
         """ handles sit requests.
@@ -149,9 +153,11 @@ class HoldemTable:
             return self._process_join_request(sit_request)
         
         if sit_request['type'] == 'leave':
-            return self._process_join_request(sit_request)
-    
+            return self._process_leave_request(sit_request)
+        
+    #TODO: refactor
     def request_handler(self, request: dict) -> dict:
+        print(request)
         """ handles the following types of events:
         sit_request,
         game_request
@@ -165,16 +171,68 @@ class HoldemTable:
             }
         }
         """
-        REQUEST_TYPES = ['move_request', 'sit_request']
-        assert request in REQUEST_TYPES
+        REQUEST_TYPES = ['move_request', 'sit_request', 'table_view_request']
+        assert request['type'] in REQUEST_TYPES
+
         if request['type'] == 'move_request':
-            response = self.round.process_game_request(request['data'])
+            if self.round == None:
+                response = {'type': 'move_response','success': False}
+            else:
+                response = self.round.process_game_request(request['data'])
         
         if request['type'] == 'sit_request':
             response =  self.process_sit_request(request['data'])
         
-        return response
+        if request['type'] == 'table_view_request':
+            player = self.get_player_by_id(request['data']['user_id'])
+            response = self.get_table_view(player)
 
+        return response
+    
+    def get_table_view(self, player: HoldemTablePlayer = None) -> dict:
+
+        shared_data = {
+                'players': [
+                    {'user_id': p.id, 'sit': p.sit, 'chips': p.chips, 'active': p.active}
+                    for p in self.players],
+        }
+
+        if self.round != None:
+            last_moves = {}
+            for p in self.round.players:
+                last_move = self.round.get_last_move(p)
+                if last_move != {}:
+                    last_moves[p.sit] = last_move
+            players = []
+            for p in self.players:
+                if p.round_player != None:
+                    players.append({'user_id': p.id, 'sit': p.sit, 'chips': p.round_player.chips, 'active': p.active, 'in_hand':True, 'folded': p.round_player.folded})
+                else:
+                    players.append({'user_id': p.id, 'sit': p.sit, 'chips': p.chips, 'active': p.active, 'in_hand': False})
+            shared_data = {
+                'players': players,
+                'community_cards': self.round.community_cards,
+                'pots': [pot['pot'] for pot in self.round.pots.values()],
+                'bets': self.round.bets,
+                'stage': self.round.stage.value,
+                'last_moves': last_moves,
+                'to_move': self.round.to_move.sit
+            }
+
+        personal_data = {}
+        if player != None:
+            if player.round_player != None:
+                personal_data = {'id': player.id, 'sit': player.sit, 'cards': player.round_player.cards, 'allowed_moves': self.round.get_allowed_moves(player.round_player)}
+
+
+        view = {
+            'type': 'table_view_update',
+            'data': {
+                'personal_data': personal_data,
+                'shared_data': shared_data,
+            }
+        }
+        return view
 
 def main():
     config = HoldemTableConfig(20,0,100,1000,9)
@@ -196,7 +254,6 @@ def main():
     print(table.round)
     table.round.start()
     print(table.round)
-    
 
 if __name__ == '__main__':
     main()

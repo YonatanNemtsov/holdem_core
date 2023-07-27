@@ -33,6 +33,8 @@ class HoldemTablePlayer:
         self.round_player = HoldemRoundPlayer(self.sit,self.chips)
 
     def sync_chips(self):
+        if self.round_player == None:
+            return
         self.chips = self.round_player.chips
     
 @dataclass
@@ -117,24 +119,33 @@ class HoldemTable:
             return response
         
         self.add_player(join_request['user_id'], join_request['sit'], join_request['chips'])
+        response['data'] = {'amount': join_request['chips']}
 
         return response
     
 
     #TODO: needs to be written with full functionality.
     def _process_leave_request(self, leave_request):
-        
-        response = {'type':'sit_response', 'success':True}
+        response = {'type':'sit_response', 'success': False}
+
         if self.get_player_by_sit(leave_request['sit']) == None:
-            response['success'] = False
             return response
         
-        if self.get_player_by_id(leave_request['user_id']) == None:
-            response['success'] = False
+        player = self.get_player_by_id(leave_request['user_id'])
+        if player == None:
             return response
+
+        if self.round != None:
+            if player.round_player in self.round.players:
+                if self.round.stage != HoldemRoundStage.ENDED:
+                    return response
         
-        self.remove_player(self.get_player_by_id(leave_request['user_id']))
+        player.sync_chips()
+        response['data'] = {'amount': player.chips}
+        response['success'] = True
+        self.remove_player(player)
         
+        print(response)
         return response
 
     def process_sit_request(self, sit_request: dict):
@@ -157,7 +168,7 @@ class HoldemTable:
         
     #TODO: refactor
     def request_handler(self, request: dict) -> dict:
-        print(request)
+        #print(request)
         """ handles the following types of events:
         sit_request,
         game_request

@@ -172,7 +172,6 @@ class HoldemRound:
         return  sum([0]+[bet[2]+bet[3] for bet in self.bets[stage] if bet[0]==player.sit])
     
     def get_player_total_bet(self,player: HoldemRoundPlayer) -> int:
-        print(self.bets)
         return sum([self.get_player_total_bet_in_stage(player,stage) for stage in self.bets.keys()])
     
     def get_call_amount(self, player: HoldemRoundPlayer) -> int:
@@ -237,12 +236,10 @@ class HoldemRound:
             for bet_rank in pots:
                 pots[bet_rank]['players'].append(player)
         self.pots = pots
-        print(self.pots)
     
     def determine_pots_winners(self) -> None:
         assert self.stage in (HoldemRoundStage.NO_SHOWDOWN,HoldemRoundStage.SHOWDOWN)
         not_folded_players = [p for p in self.players if not p.folded]
-        print(not_folded_players)
 
         if len(not_folded_players) == 1:
             assert self.stage == HoldemRoundStage.NO_SHOWDOWN
@@ -285,6 +282,33 @@ class HoldemRound:
         for player in self.players:
             player.cards = [self.deck.pop(),self.deck.pop()]
     
+    def post_blinds(self):
+        sb_player = self.move_queue.player_order[-2]
+        bb_player = self.move_queue.player_order[-1]
+        #print(sb_player.sit, bb_player.sit)
+        sb_player.chips -= min(sb_player.chips, self.config.small_blind)
+        bb_player.chips -= min(bb_player.chips, 2*self.config.small_blind)
+        self.bets['preflop'].append((sb_player.sit, 'raise', 0, self.config.small_blind))
+        self.bets['preflop'].append((bb_player.sit, 'raise', self.config.small_blind, self.config.small_blind))
+        self.log.append(
+            {
+                'action': 'sb',
+                'call_amount': 0,
+                'raise_amount': self.config.small_blind, 
+                'sit': sb_player.sit, 
+                'stage': 'preflop'
+                }
+        )
+        self.log.append(
+            {
+                'action': 'bb',
+                'call_amount': self.config.small_blind,
+                'raise_amount': self.config.small_blind, 
+                'sit': bb_player.sit, 
+                'stage': 'preflop'
+                }
+        )
+
     def validate_game_setup(self):
         if self.stage is not HoldemRoundStage.NOT_STARTED:
             raise Exception("Game already started!")
@@ -294,10 +318,11 @@ class HoldemRound:
     def start(self):
         self.validate_game_setup()
         self.deal_cards()
+        self.post_blinds()
         self.stage = HoldemRoundStage.PREFLOP
         self.to_move = self.move_queue.get()
 
-        print(self.to_move)
+        #print(self.to_move)
     
     # TODO: refactor: start_showdown(), start_flop(), etc...
     def start_next_stage(self):

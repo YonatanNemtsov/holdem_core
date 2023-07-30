@@ -145,7 +145,7 @@ class HoldemTable:
         response['success'] = True
         self.remove_player(player)
         
-        print(response)
+        # print(response)
         return response
 
     def process_sit_request(self, sit_request: dict):
@@ -201,7 +201,7 @@ class HoldemTable:
         return response
     
     def get_table_view(self, player: HoldemTablePlayer = None) -> dict:
-
+        
         shared_data = {
                 'players': [
                     {'user_id': p.id, 'sit': p.sit, 'chips': p.chips, 'active': p.active}

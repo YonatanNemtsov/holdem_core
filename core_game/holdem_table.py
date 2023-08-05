@@ -56,7 +56,7 @@ class HoldemTable:
         self.table_id: str = table_id
         self.config: HoldemTableConfig = config
         self.players: list[HoldemTablePlayer] = []
-        self.dealer: HoldemTablePlayer = None
+        self.first_to_move: HoldemTablePlayer = None
         self.round: HoldemRound = None
     
     def add_player(self, player_id: str, sit: int, chips: int):
@@ -67,7 +67,7 @@ class HoldemTable:
         player = HoldemTablePlayer(player_id, self.table_id, sit, chips)
 
         if len(self.players) == 0:
-            self.dealer = player
+            self.first_to_move = player
 
         self.players.append(player)
     
@@ -93,9 +93,16 @@ class HoldemTable:
             player.make_round_player()
         
         # TODO: change first_to_move to dealer.
-        round = HoldemRound(config,[player.round_player for player in self.players], first_to_move=self.dealer.round_player)
+        round = HoldemRound(config,[player.round_player for player in self.players], first_to_move=self.first_to_move.round_player)
         self.round = round
-        
+
+        self.rotate_first_to_move()
+
+    
+    def rotate_first_to_move(self):
+        sits = list(reversed(sorted([p.sit for p in self.players])))
+        next_sit = sits[sits.index(self.first_to_move.sit) -1]
+        self.first_to_move = self.get_player_by_sit(next_sit)
             
     def get_player_by_id(self, player_id: str) -> HoldemTablePlayer:
         for player in self.players:
@@ -227,14 +234,20 @@ class HoldemTable:
                 'bets': self.round.bets,
                 'stage': self.round.stage.value,
                 'last_moves': last_moves,
-                'to_move': self.round.to_move.sit
+                'to_move': self.round.to_move.sit,
+                'show_cards': {},
             }
+
+            if self.round.stage == HoldemRoundStage.SHOWDOWN:
+                for p in self.round.players:
+                    if not p.folded:
+                        shared_data['show_cards'][p.sit] = p.cards
 
         personal_data = {}
         if player != None:
             if player.round_player != None:
                 personal_data = {'id': player.id, 'sit': player.sit, 'cards': player.round_player.cards, 'allowed_moves': self.round.get_allowed_moves(player.round_player)}
-
+        
 
         view = {
             'type': 'table_view_update',

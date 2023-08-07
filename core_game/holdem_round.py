@@ -43,7 +43,7 @@ class HoldemRoundPlayer:
         )
 
         assert(10 > self.sit > 0)
-        assert(self.chips >= 0)
+        assert(self.chips > 0)
 
 class PlayerQueue:
     def __init__(self,player_order: list[HoldemRoundPlayer]):
@@ -139,10 +139,18 @@ class HoldemRound:
         if not self.stage in (HoldemRoundStage.FLOP,HoldemRoundStage.PREFLOP,HoldemRoundStage.RIVER,HoldemRoundStage.TURN):
             return allowed_moves
         
+
+        
         if self.to_move != player:
             return allowed_moves
         
         if player.chips == 0:
+            allowed_moves['moves'].append('check')
+            return allowed_moves
+        
+        non_all_in_players = len([p for p in self.players if not p.chips==0])
+        if all((non_all_in_players == 1, self.get_call_amount(player) == 0)):
+            allowed_moves['moves'].append('check')
             return allowed_moves
         
         if player.folded:
@@ -210,6 +218,27 @@ class HoldemRound:
     def get_min_total_bet(self, player: HoldemRoundPlayer) -> int:
         return self.get_call_amount(player) + self.get_min_raise_amount()
     
+    @staticmethod
+    def join_pots(pots: dict) -> dict:
+        
+        if len(pots) == 1:
+            return pots
+        
+        new_pots = {}
+        bet_ranks = list(reversed(sorted(pots.keys())))
+        bet_rank = bet_ranks[0]
+        for br in bet_ranks[1:]:
+            print(br)
+            if len([p.sit for p in pots[br]['players']]) == len([p.sit for p in pots[bet_rank]['players']]):
+                print(10)
+                new_bet_rank = br + bet_rank
+                new_pot = pots[br]['pot'] + pots[bet_rank]['pot']
+                new_pots[new_bet_rank] = {'pot': new_pot, 'players':pots[br]['players']}
+                bet_rank = new_bet_rank
+            else:
+                bet_rank = br
+        return new_pots
+
     def make_pots(self):
         """
         create self.pots from self.bets
@@ -234,8 +263,13 @@ class HoldemRound:
                 pots[bet] = {'pot':(bet-bet_rank) * (len(ordered_total_bets) - count),'players':[]}
                 bet_rank = bet
             for bet_rank in pots:
-                pots[bet_rank]['players'].append(player)
-        self.pots = pots
+                if not player.folded:
+                    pots[bet_rank]['players'].append(player)
+
+        new_pots = self.join_pots(pots)
+
+        self.pots = new_pots
+        print(new_pots)
     
     def determine_pots_winners(self) -> None:
         assert self.stage in (HoldemRoundStage.NO_SHOWDOWN,HoldemRoundStage.SHOWDOWN)
